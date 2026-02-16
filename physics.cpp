@@ -9,20 +9,19 @@
 #include "physics.h"
 
 void computeForceHooksLaw(struct point *pA, struct point *vA, struct point *pB, struct point *vB,
-                          double kE, double dE, struct point *forceOut)
+                          double kE, double dE, double rest_length, struct point *forceOut)
 {
   struct point L, vDiff;
-  double rest_length = 2.0 / 7.0; //distance between two adjacent points at rest
-  pDIFFERENCE(*pB, *pA, L); // L is the vector pointing from B -> A
-  // calculate magnitude
+  pDIFFERENCE(*pB, *pA, L); // L is the vector pointing from A -> B
+  // calculate magnitude using 3d euclidean distance
   double len = sqrt(L.x*L.x + L.y*L.y + L.z*L.z); 
   if (len == 0) return;
 
   struct point dir;
-  pMULTIPLY(L, 1.0/len, dir);        // unit direction A->B
+  pMULTIPLY(L, 1.0/len, dir); // dividing vector by magnitude gives its direction
 
   struct point fHook;
-  pMULTIPLY(dir, -kE * (len - rest_length), fHook);
+  pMULTIPLY(dir, kE * (len - rest_length), fHook); // f = k * x
 
   // Damping: -d * dot(vA - vB, dir) * dir
   pDIFFERENCE(*vA, *vB, vDiff);
@@ -63,25 +62,128 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
           {1, 0, 0}, {-1, 0, 0}, {0, 1, 0}, {0, -1, 0}, {0, 0, 1}, {0, 0, -1}
         };
         
-        for (int s = 0; s < n; s++){
+        for (int s = 0; s < 6; s++){
           // compute each neighbors index
           int ni = i + structural_neighbors[s][0];
           int nj = j + structural_neighbors[s][1];
           int nk = k + structural_neighbors[s][2];
           // make sure the neighbor exists
-          if (ni >= 0 && ni <= 8 && nj >= 0 && nj <= 8 && nk >= 0 && nk <= 8){ 
-            computeForceHooksLaw(&jello->p[i][j][k], &jello->v[i][j][k], &jello->p[ni][nj][nk], 
-              &jello->v[ni][nj][nk], jello->kElastic, jello->dElastic, &force);
+          if (ni >= 0 && ni < 8 && nj >= 0 && nj < 8 && nk >= 0 && nk < 8){
+            double spacing = 2.0 / 7.0; // distance between adjacent grid points along one axis
+            computeForceHooksLaw(&jello->p[i][j][k], &jello->v[i][j][k], &jello->p[ni][nj][nk],
+              &jello->v[ni][nj][nk], jello->kElastic, jello->dElastic, spacing, &force);
           }
         }
-        // calculate shear force
-        // calculate bend force
+        // calculate shear force (diagonal neighbors) - there are 20
+        int shear_neighbors[20][3] = {
+          // 2D diagonals in ij plane
+          {1,1,0},{-1,1,0},{1,-1,0},{-1,-1,0},
+          // 2D diagonals in ik plane
+          {1,0,1},{-1,0,1},{1,0,-1},{-1,0,-1},
+          // 2D diagonals in jk plane
+          {0,1,1},{0,-1,1},{0,1,-1},{0,-1,-1},
+          // 3D diagonals
+          {1,1,1},{-1,1,1},{1,-1,1},{-1,-1,1},
+          {1,1,-1},{-1,1,-1},{1,-1,-1},{-1,-1,-1}
+        };
+        for (int s = 0; s < 20; s++){
+          // compute neighbor indices
+          int ni = i + shear_neighbors[s][0];
+          int nj = j + shear_neighbors[s][1];
+          int nk = k + shear_neighbors[s][2];
+          if (ni >= 0 && ni < 8 && nj >= 0 && nj < 8 && nk >= 0 && nk < 8){
+            double spacing = 2.0 / 7.0;
+            // pythagorean theorem
+            double restLen = spacing * sqrt((double)(
+              shear_neighbors[s][0]*shear_neighbors[s][0] +
+              shear_neighbors[s][1]*shear_neighbors[s][1] +
+              shear_neighbors[s][2]*shear_neighbors[s][2]));
+            computeForceHooksLaw(&jello->p[i][j][k], &jello->v[i][j][k], &jello->p[ni][nj][nk],
+              &jello->v[ni][nj][nk], jello->kElastic, jello->dElastic, restLen, &force);
+          }
+        }
 
-        // calculate external forces
+        // calculate bend force (each node connected to its second neighbor)
+        int bend_neighbors[6][3] = {
+          {2,0,0},{-2,0,0},{0,2,0},{0,-2,0},{0,0,2},{0,0,-2}
+        };
+        for (int s = 0; s < 6; s++){
+          int ni = i + bend_neighbors[s][0];
+          int nj = j + bend_neighbors[s][1];
+          int nk = k + bend_neighbors[s][2];
+          if (ni >= 0 && ni < 8 && nj >= 0 && nj < 8 && nk >= 0 && nk < 8){
+            double spacing = 2.0 / 7.0;
+            computeForceHooksLaw(&jello->p[i][j][k], &jello->v[i][j][k], &jello->p[ni][nj][nk],
+              &jello->v[ni][nj][nk], jello->kElastic, jello->dElastic, 2.0 * spacing, &force);
+          }
+        }
 
-        // calculate bouncing forces
+        // calculate external forces (trilinear interpolation of force field)
+        if (jello->resolution > 0) {
+          struct point pos = jello->p[i][j][k];
+          int res = jello->resolution;
+
+          // map position [-2,2] to grid index [0, res-1]
+          double gx = (pos.x + 2.0) / 4.0 * (res - 1);
+          double gy = (pos.y + 2.0) / 4.0 * (res - 1);
+          double gz = (pos.z + 2.0) / 4.0 * (res - 1);
+
+          // clamp to valid range
+          if (gx < 0) gx = 0; if (gx > res - 1) gx = res - 1;
+          if (gy < 0) gy = 0; if (gy > res - 1) gy = res - 1;
+          if (gz < 0) gz = 0; if (gz > res - 1) gz = res - 1;
+
+          // find the 8 surrounding grid points
+          int x0 = (int)gx, y0 = (int)gy, z0 = (int)gz;
+          int x1 = x0 + 1, y1 = y0 + 1, z1 = z0 + 1;
+          if (x1 > res - 1) x1 = res - 1;
+          if (y1 > res - 1) y1 = res - 1;
+          if (z1 > res - 1) z1 = res - 1;
+
+          // fractional position within the cell (0 = at low corner, 1 = at high corner)
+          double fx = gx - x0, fy = gy - y0, fz = gz - z0;
+
+          // look up force at each of the 8 corners
+          #define FF(xi,yi,zi) jello->forceField[(xi)*res*res + (yi)*res + (zi)]
+          struct point c000 = FF(x0,y0,z0), c100 = FF(x1,y0,z0);
+          struct point c010 = FF(x0,y1,z0), c110 = FF(x1,y1,z0);
+          struct point c001 = FF(x0,y0,z1), c101 = FF(x1,y0,z1);
+          struct point c011 = FF(x0,y1,z1), c111 = FF(x1,y1,z1);
+          #undef FF
+
+          // blend the 8 corners based on how close the point is to each one
+          struct point f;
+          f.x = (1-fx)*(1-fy)*(1-fz)*c000.x + fx*(1-fy)*(1-fz)*c100.x
+              + (1-fx)*fy*(1-fz)*c010.x     + fx*fy*(1-fz)*c110.x
+              + (1-fx)*(1-fy)*fz*c001.x      + fx*(1-fy)*fz*c101.x
+              + (1-fx)*fy*fz*c011.x           + fx*fy*fz*c111.x;
+          f.y = (1-fx)*(1-fy)*(1-fz)*c000.y + fx*(1-fy)*(1-fz)*c100.y
+              + (1-fx)*fy*(1-fz)*c010.y     + fx*fy*(1-fz)*c110.y
+              + (1-fx)*(1-fy)*fz*c001.y      + fx*(1-fy)*fz*c101.y
+              + (1-fx)*fy*fz*c011.y           + fx*fy*fz*c111.y;
+          f.z = (1-fx)*(1-fy)*(1-fz)*c000.z + fx*(1-fy)*(1-fz)*c100.z
+              + (1-fx)*fy*(1-fz)*c010.z     + fx*fy*(1-fz)*c110.z
+              + (1-fx)*(1-fy)*fz*c001.z      + fx*(1-fy)*fz*c101.z
+              + (1-fx)*fy*fz*c011.z           + fx*fy*fz*c111.z;
+
+          pSUM(force, f, force);
+        }
+
+        // calculate bouncing forces (penalty springs at walls ±2)
+        struct point pos = jello->p[i][j][k];
+        struct point vel = jello->v[i][j][k];
+        double kC = jello->kCollision, dC = jello->dCollision;
+
+        // if the jello goes past a wall it gets pushed back
+        if (pos.x > 2.0)  { force.x += -kC * (pos.x - 2.0) - dC * vel.x; }
+        if (pos.x < -2.0) { force.x += -kC * (pos.x + 2.0) - dC * vel.x; }
+        if (pos.y > 2.0)  { force.y += -kC * (pos.y - 2.0) - dC * vel.y; }
+        if (pos.y < -2.0) { force.y += -kC * (pos.y + 2.0) - dC * vel.y; }
+        if (pos.z > 2.0)  { force.z += -kC * (pos.z - 2.0) - dC * vel.z; }
+        if (pos.z < -2.0) { force.z += -kC * (pos.z + 2.0) - dC * vel.z; }
 
         // store total force/ mass in points array
+        pMULTIPLY(force, 1.0 / jello->mass, a[i][j][k]);
       }
     }
   }
