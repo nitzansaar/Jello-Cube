@@ -8,6 +8,9 @@
 #include "jello.h"
 #include "physics.h"
 
+static const double cubeScale = 0.5;
+static const double cubeCollisionDist = cubeScale * 2.0 / 7.0; // scaled grid spacing
+
 void computeForceHooksLaw(struct point *pA, struct point *vA, struct point *pB, struct point *vB,
                           double kE, double dE, double rest_length, struct point *forceOut)
 {
@@ -44,7 +47,7 @@ void computeForceHooksLaw(struct point *pA, struct point *vA, struct point *pB, 
     - bouncing off the walls. 
     
     Returns result in array 'a'. */
-void computeAcceleration(struct world * jello, struct point a[8][8][8])
+void computeAcceleration(struct world * jello, struct point a[8][8][8], struct world * other)
 {
   /*compute force on each of the points
       - force comes from 
@@ -69,7 +72,7 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
           int nk = k + structural_neighbors[s][2];
           // make sure the neighbor exists
           if (ni >= 0 && ni < 8 && nj >= 0 && nj < 8 && nk >= 0 && nk < 8){
-            double spacing = 2.0 / 7.0; // distance between adjacent grid points along one axis
+            double spacing = cubeScale * 2.0 / 7.0;
             computeForceHooksLaw(&jello->p[i][j][k], &jello->v[i][j][k], &jello->p[ni][nj][nk],
               &jello->v[ni][nj][nk], jello->kElastic, jello->dElastic, spacing, &force);
           }
@@ -92,7 +95,7 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
           int nj = j + shear_neighbors[s][1];
           int nk = k + shear_neighbors[s][2];
           if (ni >= 0 && ni < 8 && nj >= 0 && nj < 8 && nk >= 0 && nk < 8){
-            double spacing = 2.0 / 7.0;
+            double spacing = cubeScale * 2.0 / 7.0;
             // pythagorean theorem
             double restLen = spacing * sqrt((double)(
               shear_neighbors[s][0]*shear_neighbors[s][0] +
@@ -112,7 +115,7 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
           int nj = j + bend_neighbors[s][1];
           int nk = k + bend_neighbors[s][2];
           if (ni >= 0 && ni < 8 && nj >= 0 && nj < 8 && nk >= 0 && nk < 8){
-            double spacing = 2.0 / 7.0;
+            double spacing = cubeScale * 2.0 / 7.0;
             computeForceHooksLaw(&jello->p[i][j][k], &jello->v[i][j][k], &jello->p[ni][nj][nk],
               &jello->v[ni][nj][nk], jello->kElastic, jello->dElastic, 2.0 * spacing, &force);
           }
@@ -182,6 +185,38 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
         if (pos.z > 2.0)  { force.z += -kC * (pos.z - 2.0) - dC * vel.z; }
         if (pos.z < -2.0) { force.z += -kC * (pos.z + 2.0) - dC * vel.z; }
 
+        // inter-cube collision forces
+        if (other != NULL)
+        {
+          for (int oi = 0; oi < 8; oi++)
+            for (int oj = 0; oj < 8; oj++)
+              for (int ok = 0; ok < 8; ok++)
+              {
+                struct point diff;
+                pDIFFERENCE(pos, other->p[oi][oj][ok], diff);
+                double dist = sqrt(diff.x*diff.x + diff.y*diff.y + diff.z*diff.z);
+                if (dist < cubeCollisionDist && dist > 1e-10)
+                {
+                  // normal pointing from other toward current point
+                  struct point normal;
+                  pMULTIPLY(diff, 1.0/dist, normal);
+                  double penetration = cubeCollisionDist - dist;
+
+                  // relative velocity
+                  struct point vRel;
+                  pDIFFERENCE(vel, other->v[oi][oj][ok], vRel);
+                  double vn = vRel.x*normal.x + vRel.y*normal.y + vRel.z*normal.z;
+
+                  // only damp inward (approaching) velocity
+                  double dampTerm = (vn < 0) ? -dC * vn : 0.0;
+
+                  force.x += (kC * penetration + dampTerm) * normal.x;
+                  force.y += (kC * penetration + dampTerm) * normal.y;
+                  force.z += (kC * penetration + dampTerm) * normal.z;
+                }
+              }
+        }
+
         // store total force/ mass in points array
         pMULTIPLY(force, 1.0 / jello->mass, a[i][j][k]);
       }
@@ -192,12 +227,12 @@ void computeAcceleration(struct world * jello, struct point a[8][8][8])
 
 /* performs one step of Euler Integration */
 /* as a result, updates the jello structure */
-void Euler(struct world * jello)
+void Euler(struct world * jello, struct world * other)
 {
   int i,j,k;
   point a[8][8][8];
 
-  computeAcceleration(jello, a);
+  computeAcceleration(jello, a, other);
   
   for (i=0; i<=7; i++)
     for (j=0; j<=7; j++)
@@ -215,7 +250,7 @@ void Euler(struct world * jello)
 
 /* performs one step of RK4 Integration */
 /* as a result, updates the jello structure */
-void RK4(struct world * jello)
+void RK4(struct world * jello, struct world * other)
 {
   point F1p[8][8][8], F1v[8][8][8], 
         F2p[8][8][8], F2v[8][8][8],
@@ -231,7 +266,7 @@ void RK4(struct world * jello)
 
   buffer = *jello; // make a copy of jello
 
-  computeAcceleration(jello, a);
+  computeAcceleration(jello, a, other);
 
   for (i=0; i<=7; i++)
     for (j=0; j<=7; j++)
@@ -245,7 +280,7 @@ void RK4(struct world * jello)
          pSUM(jello->v[i][j][k],buffer.v[i][j][k],buffer.v[i][j][k]);
       }
 
-  computeAcceleration(&buffer, a);
+  computeAcceleration(&buffer, a, other);
 
   for (i=0; i<=7; i++)
     for (j=0; j<=7; j++)
@@ -253,7 +288,7 @@ void RK4(struct world * jello)
       {
          // F2p = dt * buffer.v;
          pMULTIPLY(buffer.v[i][j][k],jello->dt,F2p[i][j][k]);
-         // F2v = dt * a(buffer.p,buffer.v);     
+         // F2v = dt * a(buffer.p,buffer.v);
          pMULTIPLY(a[i][j][k],jello->dt,F2v[i][j][k]);
          pMULTIPLY(F2p[i][j][k],0.5,buffer.p[i][j][k]);
          pMULTIPLY(F2v[i][j][k],0.5,buffer.v[i][j][k]);
@@ -261,7 +296,7 @@ void RK4(struct world * jello)
          pSUM(jello->v[i][j][k],buffer.v[i][j][k],buffer.v[i][j][k]);
       }
 
-  computeAcceleration(&buffer, a);
+  computeAcceleration(&buffer, a, other);
 
   for (i=0; i<=7; i++)
     for (j=0; j<=7; j++)
@@ -269,15 +304,15 @@ void RK4(struct world * jello)
       {
          // F3p = dt * buffer.v;
          pMULTIPLY(buffer.v[i][j][k],jello->dt,F3p[i][j][k]);
-         // F3v = dt * a(buffer.p,buffer.v);     
+         // F3v = dt * a(buffer.p,buffer.v);
          pMULTIPLY(a[i][j][k],jello->dt,F3v[i][j][k]);
          pMULTIPLY(F3p[i][j][k],1.0,buffer.p[i][j][k]);
          pMULTIPLY(F3v[i][j][k],1.0,buffer.v[i][j][k]);
          pSUM(jello->p[i][j][k],buffer.p[i][j][k],buffer.p[i][j][k]);
          pSUM(jello->v[i][j][k],buffer.v[i][j][k],buffer.v[i][j][k]);
       }
-         
-  computeAcceleration(&buffer, a);
+
+  computeAcceleration(&buffer, a, other);
 
 
   for (i=0; i<=7; i++)
