@@ -40,6 +40,10 @@ The cubes are scaled to half size (`cubeScale = 0.5`) so they have room to move 
 
 Inter-cube collision uses the same penalty-spring model as wall collision. For every pair of points between the two cubes, if the distance is less than one (scaled) grid spacing, a repulsive penalty force pushes the points apart and a damping term resists inward relative velocity. This prevents the cubes from passing through each other.
 
+
+https://github.com/user-attachments/assets/b6a4e648-0b31-462d-8ae3-ccd80e5a2b23
+
+
 Integration uses a "frozen other" approach: at each timestep, snapshots of both cubes are taken, and each cube is integrated against the other's snapshot. This avoids order-dependent artifacts and is a standard game physics simplification that is accurate with small dt.
 
 Cube 1 is rendered with a blue material and cube 2 with a warm orange/red material so they are visually distinct.
