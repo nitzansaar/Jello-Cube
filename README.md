@@ -1,7 +1,5 @@
 # Jello-Cube
-
-https://github.com/user-attachments/assets/3acb25a4-490b-49b7-96c9-c7c017f1e3d4
-
+https://github.com/user-attachments/assets/b6a4e648-0b31-462d-8ae3-ccd80e5a2b23
 
 This assignment is a simulation of a jello cube in a box. It reads a 'world file' which contains the instructions of the physics that will be acted upon the jello cube. All of the rendering was already done for me, so all that I needed to implement was the computeAcceleration() method. The jello cube is composed of 512 points that are all connected by edges. There are different types of edges/springs.
 
@@ -39,7 +37,7 @@ The jello cube is contained within a bounding box from -2 to 2 in all directions
 
 The simulation features two jello cubes bouncing and colliding inside the bounding box. A second cube (`jello2`) is initialized by mirroring the first cube's positions across the origin (negating x and y) and reversing its x and y velocities so the two cubes start on opposite sides and move toward each other. Both cubes share the same physics parameters (spring constants, damping, mass, integrator, timestep).
 
-The cubes are scaled to half size (`cubeScale = 0.5`) so they have room to move around inside the box. All spring rest lengths and the inter-cube collision threshold are scaled accordingly.
+The cubes are scaled to half size so they have room to move around inside the box. All spring rest lengths and the inter-cube collision threshold are scaled accordingly.
 
 Inter-cube collision uses the same penalty-spring model as wall collision. For every pair of points between the two cubes, if the distance is less than one (scaled) grid spacing, a repulsive penalty force pushes the points apart and a damping term resists inward relative velocity. This prevents the cubes from passing through each other.
 
