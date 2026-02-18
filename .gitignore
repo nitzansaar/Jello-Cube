@@ -1,0 +1,12 @@
+# Compiled binaries
+jello
+createWorld
+
+# Object files
+*.o
+
+# Screenshot output
+*.ppm
+
+# Visual Studio build output
+Bin/
