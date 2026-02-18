@@ -1,5 +1,7 @@
 # Jello-Cube
-https://github.com/user-attachments/assets/b6a4e648-0b31-462d-8ae3-ccd80e5a2b23
+
+https://github.com/user-attachments/assets/02d63a45-c03f-46fb-9c23-d44c7b6bc6c7
+
 
 This assignment is a simulation of a jello cube in a box. It reads a 'world file' which contains the instructions of the physics that will be acted upon the jello cube. All of the rendering was already done for me, so all that I needed to implement was the computeAcceleration() method. The jello cube is composed of 512 points that are all connected by edges. There are different types of edges/springs.
 
