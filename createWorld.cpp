@@ -315,25 +315,34 @@ void createTornado()
 {
   struct world jello;
   initParams(&jello);
-  initCube(&jello);
 
-  // give initial velocity so cube is already moving into the vortex
+  // softer springs so the cube visibly deforms as it's twisted and stretched
+  jello.kElastic = 300.0;
+  jello.dElastic = 0.3;
+
+  // start cube off to one side, near the bottom — it has to get pulled in
   for (int i=0; i<=7; i++)
     for (int j=0; j<=7; j++)
       for (int k=0; k<=7; k++)
       {
-        jello.v[i][j][k].x = -2.0;
-        jello.v[i][j][k].y = 3.0;
-        jello.v[i][j][k].z = 2.0;
+        jello.p[i][j][k].x =  0.8 + (-1.0 + 2.0 * i / 7) * 0.5;
+        jello.p[i][j][k].y = -1.5 + (2.0 * j / 7) * 0.5;
+        jello.p[i][j][k].z =        (-1.0 + 2.0 * k / 7) * 0.5;
+        // tangential kick: already moving in the direction the vortex spins
+        jello.v[i][j][k].x =  0.0;
+        jello.v[i][j][k].y =  2.0;
+        jello.v[i][j][k].z = -3.5;
       }
 
   jello.resolution = 30;
   jello.forceField = allocField(jello.resolution);
 
-  double swirlStrength = 0.08;  // tangential swirl around Y-axis
-  double updraft = 0.06;        // upward lift near center
-  double downdraft = -0.04;     // downward push far from center
-  double inwardPull = -0.03;    // keeps cube from flying out
+  // Rankine vortex parameters
+  double eyeRadius  = 0.45;   // core radius: solid-body rotation inside, 1/r outside
+  double maxSwirl   = 0.22;   // peak tangential force at the eye wall
+  double eyeInward  = 0.09;   // inward suction, strongest at the eye wall
+  double updraftPk  = 0.14;   // peak updraft force at the vortex axis
+  double gravity    = -0.03;  // mild gravity throughout
 
   for (int i = 0; i < jello.resolution; i++)
     for (int j = 0; j < jello.resolution; j++)
@@ -343,27 +352,46 @@ void createTornado()
         double y = -2 + 4.0 * j / (jello.resolution - 1);
         double z = -2 + 4.0 * k / (jello.resolution - 1);
 
-        double r = sqrt(x*x + z*z); // radial distance from Y-axis
+        double r = sqrt(x*x + z*z); // radial distance from the Y-axis
         int idx = i * jello.resolution * jello.resolution + j * jello.resolution + k;
 
-        // tangential swirl in XZ plane
-        double fx = -z * swirlStrength;
-        double fz =  x * swirlStrength;
-
-        // vertical: updraft near center, downdraft far away
-        // creates circulation - cube rises in the middle, falls on the outside
-        double fy;
-        if (r < 1.0)
-          fy = updraft * (1.0 - r);
+        // --- Tangential swirl (Rankine vortex profile) ---
+        // Inside the eye: linear with r (solid body, like a spinning top)
+        // Outside the eye: falls off as 1/r (free vortex, like water spiraling a drain)
+        double swirlSpeed;
+        if (r <= eyeRadius)
+          swirlSpeed = maxSwirl * (r / eyeRadius);
         else
-          fy = downdraft * (r - 1.0) / 1.5;
+          swirlSpeed = maxSwirl * (eyeRadius / r);
 
-        // inward radial pull
+        // Height modulation: tornado is more intense higher up
+        // 0 at bottom wall, 1 at top wall -> swirl ramps from 30% to 100%
+        double yNorm = (y + 2.0) / 4.0;
+        swirlSpeed *= (0.3 + 0.7 * yNorm);
+
+        double fx = 0, fy = 0, fz = 0;
         if (r > 0.01)
         {
-          fx += inwardPull * (x / r);
-          fz += inwardPull * (z / r);
+          // counterclockwise in XZ: tangential direction is (-z/r, 0, x/r)
+          fx = (-z / r) * swirlSpeed;
+          fz = ( x / r) * swirlSpeed;
         }
+
+        // --- Inward suction: bell-shaped, strongest at the eye wall ---
+        // This is what drags the cube off-axis into the spiral
+        if (r > 0.01)
+        {
+          double dr = (r - eyeRadius) / (eyeRadius * 0.8);
+          double inward = eyeInward * exp(-0.5 * dr * dr);
+          fx += (-x / r) * inward;
+          fz += (-z / r) * inward;
+        }
+
+        // --- Updraft: Gaussian at center, weaker at top ---
+        // Cube rises up through the eye, deforms, then spills out over the walls
+        double updraft = updraftPk * exp(-(r * r) / (eyeRadius * eyeRadius));
+        updraft *= (1.0 - 0.6 * yNorm); // diminishes at top
+        fy = updraft + gravity;
 
         jello.forceField[idx].x = fx;
         jello.forceField[idx].y = fy;
