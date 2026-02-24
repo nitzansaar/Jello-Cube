@@ -4,7 +4,7 @@ https://github.com/user-attachments/assets/8ba1e4ab-2af7-48e3-b41e-2d8178b7ea78
 
 
 
-This assignment is a simulation of a jello cube in a box. It reads a 'world file' which contains the instructions of the physics that will be acted upon the jello cube. All of the rendering was already done for me, so all that I needed to implement was the computeAcceleration() method. The jello cube is composed of 512 points that are all connected by edges. There are different types of edges/springs.
+This assignment is a simulation of a jello cube in a box. It reads a 'world file' which contains the instructions of the physics that will be acted upon the jello cube. The jello cube is composed of 512 points that are all connected by edges. There are different types of edges/springs.
 
 A. Structural edges
 B. Shear edges
